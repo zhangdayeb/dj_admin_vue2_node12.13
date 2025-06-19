@@ -14,12 +14,12 @@
         </el-select>
       </el-col>
       <!-- 在现有的搜索行中添加 -->
-<el-col :span="3">
-  <el-input placeholder="靴号" v-model="searchTtypeId.xue" clearable></el-input>
-</el-col>
-<el-col :span="3">
-  <el-input placeholder="铺号" v-model="searchTtypeId.pu" clearable></el-input>
-</el-col>
+      <el-col :span="3">
+        <el-input placeholder="靴号" v-model="searchTtypeId.xue" clearable></el-input>
+      </el-col>
+      <el-col :span="3">
+        <el-input placeholder="铺号" v-model="searchTtypeId.pu" clearable></el-input>
+      </el-col>
 
       <el-col :span="4">
         <el-button class="page-content-btn" @click="search">搜索</el-button>
@@ -34,11 +34,26 @@
       <el-table-column label="类型" prop="type_name"/>
       <el-table-column label="结果" prop="result"/>
       <!-- <el-table-column label="开牌的数字" prop="result_pai"/> -->
-      <el-table-column label="开牌信息" prop="z" width="150">
+      <el-table-column label="开牌信息" width="180">
         <template slot-scope="scope">
-          <span style="color: red;">{{ scope.row.z }}</span>
-          <br>
-          <span style="color: blue;">{{ scope.row.x }}</span>
+          <!-- 百家乐和龙虎：显示庄闲方式 (z, x 字段) -->
+          <template v-if="(scope.row.type_name === '百家乐' || scope.row.type_name === '龙虎') && (scope.row.z || scope.row.x)">
+            <div>
+              <span style="color: red;" v-if="scope.row.z">{{ scope.row.z }}</span>
+              <br v-if="scope.row.z && scope.row.x">
+              <span style="color: blue;" v-if="scope.row.x">{{ scope.row.x }}</span>
+            </div>
+          </template>
+
+          <!-- 其他游戏类型：显示 result_pai 字段 -->
+          <template v-else-if="scope.row.result_pai && (scope.row.type_name === '骰宝' || scope.row.type_name === '牛牛' || scope.row.type_name === '抢庄牛牛' || scope.row.type_name === '三公')">
+            <span :style="getGameTypeColor(scope.row.type_name)">{{ formatResultPai(scope.row.result_pai, scope.row.type_name) }}</span>
+          </template>
+
+          <!-- 其他情况或无开牌信息：显示结果字段 -->
+          <template v-else>
+            <span style="color: #909399;">{{ scope.row.result || '-' }}</span>
+          </template>
         </template>
       </el-table-column>
       <el-table-column label="靴号" prop="xue_number"/>
@@ -175,6 +190,9 @@ export default {
       {
         name: '牛牛',
         gameType: '6'
+      },{
+        name: '抢庄牛牛',
+        gameType: '5'
       },{
         name: '三公',
         gameType: '8'
@@ -343,44 +361,6 @@ export default {
       })
     },
 
-    // loadNode(node, resolve) {
-    //   if (node.level === 0) {
-    //     return resolve([
-    //       { name: '监控中心' },
-    //       { name: '文章管理' },
-    //       { name: '用户管理' },
-    //       { name: '菜单管理' },
-    //       { name: '个性设置' },
-    //       { name: '异常管理' },
-    //       { name: '系统设置' },
-    //     ]);
-    //   }
-    //   if (node.level > 3) return resolve([]);
-
-    //   var hasChild;
-    //   if (node.data.name === 'region1') {
-    //     hasChild = true;
-    //   } else if (node.data.name === 'region2') {
-    //     hasChild = false;
-    //   } else {
-    //     hasChild = Math.random() > 0.5;
-    //   }
-
-    //   setTimeout(() => {
-    //     var data;
-    //     if (hasChild) {
-    //       data = [{
-    //         name: 'zone' + this.count++
-    //       }, {
-    //         name: 'zone' + this.count++
-    //       }];
-    //     } else {
-    //       data = [];
-    //     }
-
-    //     resolve(data);
-    //   }, 500);
-    // },
     deleteUser(scope) {
       this.$confirm('您确定要删除当前用户吗', '提示', {
         confirmButtonText: '确定',
@@ -398,6 +378,108 @@ export default {
         })
       }).catch(() => {
       })
+    },
+
+    /**
+     * 根据游戏类型返回对应颜色样式
+     * @param {string} gameType - 游戏类型名称
+     * @returns {string} CSS样式字符串
+     */
+    getGameTypeColor(gameType) {
+      const colorMap = {
+        '骰宝': 'color: #409EFF;',
+        '牛牛': 'color: #67C23A;',
+        '抢庄牛牛': 'color: #E6A23C;',
+        '三公': 'color: #F56C6C;'
+      };
+      return colorMap[gameType] || 'color: #606266;';
+    },
+
+    /**
+     * 格式化 result_pai 字段显示
+     * @param {string} resultPai - 原始开牌数据
+     * @param {string} gameType - 游戏类型名称
+     * @returns {string} 格式化后的显示文本
+     */
+    formatResultPai(resultPai, gameType) {
+      if (!resultPai) return '-';
+
+      try {
+        // 清理数据：移除转义字符、引号、方括号等
+        let cleanData = resultPai
+          .replace(/\\/g, '')           // 移除反斜杠
+          .replace(/"/g, '')            // 移除引号
+          .replace(/\[|\]/g, '')        // 移除方括号
+          .replace(/\s+/g, ' ')         // 合并多个空格
+          .trim();                      // 去除首尾空格
+
+        // 根据游戏类型进行特殊处理
+        switch(gameType) {
+          case '骰宝':
+            return this.formatDiceData(cleanData);
+          case '牛牛':
+          case '抢庄牛牛':
+            return this.formatNiuNiuData(cleanData);
+          case '三公':
+            return this.formatSanGongData(cleanData);
+          default:
+            return cleanData || '-';
+        }
+      } catch (error) {
+        console.error(`格式化${gameType}数据失败:`, error);
+        return resultPai;
+      }
+    },
+
+    /**
+     * 格式化骰宝数据
+     * @param {string} data - 清理后的数据
+     * @returns {string} 格式化结果
+     */
+    formatDiceData(data) {
+      // 提取数字
+      let numbers = data.match(/\d+/g);
+
+      if (numbers && numbers.length >= 3) {
+        let dice1 = numbers[0];
+        let dice2 = numbers[1];
+        let dice3 = numbers[2];
+        let total = parseInt(dice1) + parseInt(dice2) + parseInt(dice3);
+
+        return `骰子: ${dice1}, ${dice2}, ${dice3} (总和: ${total})`;
+      }
+
+      return data || '-';
+    },
+
+    /**
+     * 格式化牛牛数据
+     * @param {string} data - 清理后的数据
+     * @returns {string} 格式化结果
+     */
+    formatNiuNiuData(data) {
+      // 如果数据已经包含中文描述，直接返回
+      if (data.includes('牛') || data.includes('庄') || data.includes('闲')) {
+        return data;
+      }
+
+      // 否则尝试解析或直接显示
+      return data || '-';
+    },
+
+    /**
+     * 格式化三公数据
+     * @param {string} data - 清理后的数据
+     * @returns {string} 格式化结果
+     */
+    formatSanGongData(data) {
+      // 如果数据已经包含中文描述，直接返回
+      if (data.includes('公') || data.includes('庄') || data.includes('闲')) {
+        return data;
+      }
+
+      // 否则尝试解析或直接显示
+      return data || '-';
     }
   },
 }
