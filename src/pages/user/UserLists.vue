@@ -336,9 +336,20 @@
     <el-dialog title="提现账户管理" width="80%" :visible.sync="withdrawalAccountVisible" :close-on-click-modal="false">
       <div style="margin-bottom: 20px;">
         <el-button type="primary" @click="showAccountDialog('add')" icon="el-icon-plus">新增账户</el-button>
+        <span style="margin-left: 10px; color: #909399;">
+          共 {{withdrawalAccounts.length}} 个账户
+        </span>
       </div>
 
       <el-table :data="withdrawalAccounts" border v-loading="accountLoading">
+        <!-- 空数据时的提示 -->
+        <template slot="empty">
+          <div style="padding: 20px;">
+            <i class="el-icon-document" style="font-size: 32px; color: #ddd;"></i>
+            <p style="margin: 10px 0; color: #909399;">暂无提现账户</p>
+            <el-button type="primary" size="small" @click="showAccountDialog('add')">添加第一个账户</el-button>
+          </div>
+        </template>
         <el-table-column label="账户类型" width="100">
           <template slot-scope="scope">
             <el-tag :type="getAccountTypeColor(scope.row.account_type)" size="small">
@@ -359,7 +370,7 @@
               </div>
               <div v-else-if="scope.row.account_type === 'usdt'">
                 地址: {{formatWalletAddress(scope.row.wallet_address)}}
-                <el-tag size="mini" type="success">{{scope.row.network_type}}</el-tag>
+                <el-tag size="mini" type="success" v-if="scope.row.network_type">{{scope.row.network_type}}</el-tag>
               </div>
             </div>
           </template>
@@ -367,15 +378,23 @@
 
         <el-table-column label="银行/网络" width="140">
           <template slot-scope="scope">
-            <span v-if="scope.row.account_type === 'aba'">{{scope.row.bank_branch}}</span>
-            <span v-else-if="scope.row.account_type === 'usdt'">{{scope.row.network_type}}</span>
+            <span v-if="scope.row.account_type === 'aba'">{{scope.row.bank_branch || '-'}}</span>
+            <span v-else-if="scope.row.account_type === 'usdt'">{{scope.row.network_type || '-'}}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="手机号" width="120" prop="phone_number" />
+        <el-table-column label="手机号" width="120">
+          <template slot-scope="scope">
+            <span>{{scope.row.phone_number || '-'}}</span>
+          </template>
+        </el-table-column>
 
-        <el-table-column label="备注名称" width="100" prop="remark_name" />
+        <el-table-column label="备注名称" width="100">
+          <template slot-scope="scope">
+            <span>{{scope.row.remark_name || '-'}}</span>
+          </template>
+        </el-table-column>
 
         <el-table-column label="默认" width="80">
           <template slot-scope="scope">
@@ -401,7 +420,11 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="创建时间" width="160" prop="created_at" />
+        <el-table-column label="创建时间" width="160">
+          <template slot-scope="scope">
+            <span>{{scope.row.created_at || '-'}}</span>
+          </template>
+        </el-table-column>
 
         <el-table-column fixed="right" label="操作" width="120">
           <template slot-scope="scope">
@@ -554,17 +577,21 @@
         accountDialogTitle: '',
 
         form: {
+          id: '',
           user_name: '',
           pwd: '',
           withdraw_pwd: '',
           type: '2',
           market_uid: '',
-          xima_lv: '',
+          xima_lv: 0,
           money_balance: 0,
           money_freeze: 0,
           rebate_balance: 0,
           phone: '',
-          remarks: ''
+          remarks: '',
+          agent_id: 0,
+          agent_nickname: '',
+          id_code: ''
         },
 
         // 提现账户表单
@@ -595,8 +622,9 @@
         },
 
         auth: 1,
+        currentUserId: 0, // 当前操作的用户ID
         roleList: [],
-        withdrawalAccounts: [],
+        withdrawalAccounts: [], // 确保初始化为数组
         game_count_all: [],
         showRechargeVisible: false,
         rechargeList: [],
@@ -837,23 +865,38 @@
         this.typeEdit = type;
         this.dvEdit = true;
         if (type == 'edit') {
-          this.form = { ...row };
-          this.form.type = row.type.toString();
-        } else {
-          let nickname = '新用户' + Math.round(Math.random() * 100000);
+          // 深拷贝并确保所有字段都存在
           this.form = {
-            'type': '2',
-            'nickname': nickname,
-            'money_balance': 0,
-            'money_freeze': 0,
-            'rebate_balance': 0,
-            'xima_lv': 0,
-            'user_name': '',
-            'pwd': '',
-            'withdraw_pwd': '',
-            'market_uid': '',
-            'phone': '',
-            'remarks': ''
+            id: row.id || '',
+            user_name: row.user_name || '',
+            pwd: '',
+            withdraw_pwd: '',
+            type: row.type ? row.type.toString() : '2',
+            market_uid: row.market_uid || '',
+            xima_lv: row.xima_lv || 0,
+            money_balance: row.money_balance || 0,
+            money_freeze: row.money_freeze || 0,
+            rebate_balance: row.rebate_balance || 0,
+            phone: row.phone || '',
+            remarks: row.remarks || '',
+            agent_id: row.agent_id || 0,
+            agent_nickname: row.agent_nickname || '',
+            id_code: row.id_code || ''
+          };
+        } else {
+          this.form = {
+            user_name: '',
+            pwd: '',
+            withdraw_pwd: '',
+            type: '2',
+            market_uid: '',
+            xima_lv: 0,
+            money_balance: 0,
+            money_freeze: 0,
+            rebate_balance: 0,
+            phone: '',
+            remarks: '',
+            id_code: ''
           };
         }
         this.dialogTitle = type === 'add' ? '新增用户' : '编辑用户'
@@ -865,8 +908,30 @@
           if (valid) {
             this.submitLoading = true;
 
+            // 准备提交的数据
+            const submitData = {
+              user_name: this.form.user_name,
+              pwd: this.form.pwd,
+              withdraw_pwd: this.form.withdraw_pwd,
+              type: this.form.type,
+              market_uid: this.form.market_uid,
+              xima_lv: this.form.xima_lv,
+              phone: this.form.phone,
+              remarks: this.form.remarks
+            };
+
+            // 如果是编辑模式，添加ID
             if (this.form.id) {
-              getUserEditApi(this.form).then(res => {
+              submitData.id = this.form.id;
+            }
+
+            // 如果是新增代理，添加上级代理ID
+            if (!this.form.id && this.form.id_code) {
+              submitData.id_code = this.form.id_code;
+            }
+
+            if (this.form.id) {
+              getUserEditApi(submitData).then(res => {
                 if (res.code == 1) {
                   this.dvEdit = false
                   this.$message({
@@ -879,7 +944,7 @@
                 this.submitLoading = false;
               })
             } else {
-              getUserAddApi(this.form).then(res => {
+              getUserAddApi(submitData).then(res => {
                 if (res.code == 1) {
                   this.dvEdit = false
                   this.$message({
@@ -924,17 +989,34 @@
         this.accountLoading = true;
         this.withdrawalAccountVisible = true;
 
+        // 保存当前用户ID
+        this.currentUserId = row.id;
+
         // 获取用户的提现账户列表
         getWithdrawalAccountsApi({user_id: row.id}).then(res => {
+          console.log('API响应:', res); // 调试日志
           if (res.code === 1) {
-            this.withdrawalAccounts = res.data || [];
+            // 检查数据结构并确保返回的是数组
+            let data = res.data;
+
+            // 如果data是对象且包含data属性，取data.data
+            if (data && typeof data === 'object' && !Array.isArray(data) && data.data) {
+              data = data.data;
+            }
+
+            this.withdrawalAccounts = Array.isArray(data) ? data : [];
+            console.log('解析后的账户列表:', this.withdrawalAccounts); // 调试日志
+          } else {
+            this.withdrawalAccounts = [];
+            console.error('获取提现账户失败:', res.msg);
           }
+        }).catch(error => {
+          console.error('获取提现账户异常:', error);
+          this.withdrawalAccounts = [];
+          this.$message.error('获取提现账户失败');
         }).finally(() => {
           this.accountLoading = false;
         })
-
-        // 保存当前用户ID
-        this.currentUserId = row.id;
       },
 
       // 显示账户编辑弹窗
@@ -980,9 +1062,37 @@
           if (valid) {
             this.accountSubmitLoading = true;
 
+            // 准备提交的数据
+            const submitData = {
+              user_id: this.accountForm.user_id,
+              account_type: this.accountForm.account_type,
+              account_name: this.accountForm.account_name,
+              phone_number: this.accountForm.phone_number,
+              id_number: this.accountForm.id_number,
+              remark_name: this.accountForm.remark_name,
+              is_default: this.accountForm.is_default,
+              status: this.accountForm.status
+            };
+
+            // 根据账户类型添加相应字段
+            if (this.accountForm.account_type === 'aba') {
+              submitData.account_number = this.accountForm.account_number;
+              submitData.bank_branch = this.accountForm.bank_branch;
+            } else if (this.accountForm.account_type === 'huiwang') {
+              submitData.account_number = this.accountForm.account_number;
+            } else if (this.accountForm.account_type === 'usdt') {
+              submitData.wallet_address = this.accountForm.wallet_address;
+              submitData.network_type = this.accountForm.network_type;
+            }
+
+            // 如果是编辑模式，添加ID
+            if (this.accountForm.id) {
+              submitData.id = this.accountForm.id;
+            }
+
             const api = this.accountForm.id ? updateWithdrawalAccountApi : addWithdrawalAccountApi;
 
-            api(this.accountForm).then(res => {
+            api(submitData).then(res => {
               if (res.code === 1) {
                 this.accountDialogVisible = false;
                 this.$message({
@@ -990,7 +1100,12 @@
                   type: 'success'
                 });
                 this.showWithdrawalAccounts({id: this.currentUserId});
+              } else {
+                this.$message.error(res.msg || '操作失败');
               }
+            }).catch(error => {
+              console.error('提交账户失败:', error);
+              this.$message.error('操作失败');
             }).finally(() => {
               this.accountSubmitLoading = false;
             })
@@ -1012,7 +1127,12 @@
                 type: 'success'
               });
               this.showWithdrawalAccounts({id: this.currentUserId});
+            } else {
+              this.$message.error(res.msg || '删除失败');
             }
+          }).catch(error => {
+            console.error('删除账户失败:', error);
+            this.$message.error('删除失败');
           })
         });
       },
@@ -1029,7 +1149,12 @@
               type: 'success'
             });
             this.showWithdrawalAccounts({id: this.currentUserId});
+          } else {
+            this.$message.error(res.msg || '设置失败');
           }
+        }).catch(error => {
+          console.error('设置默认账户失败:', error);
+          this.$message.error('设置失败');
         })
       },
 
@@ -1044,7 +1169,16 @@
               message: '状态更新成功',
               type: 'success'
             });
+          } else {
+            this.$message.error(res.msg || '状态更新失败');
+            // 恢复原状态
+            row.status = row.status === 1 ? 0 : 1;
           }
+        }).catch(error => {
+          console.error('更新状态失败:', error);
+          this.$message.error('状态更新失败');
+          // 恢复原状态
+          row.status = row.status === 1 ? 0 : 1;
         })
       },
 
